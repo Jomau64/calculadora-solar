@@ -3,7 +3,7 @@ import pandas as pd
 from componentes import ComponentesManager
 from costos import CostosManager
 from analisis_economico import AnalisisEconomico as AnalisisEconomicoManager
-from google_sheets_handler import SheetsManager
+from google_sheets_handler import GoogleSheetHandler as SheetsManager
 
 st.set_page_config(
     page_title="Calculadora Solar",
