@@ -1,8 +1,8 @@
 import gspread
 import pandas as pd
 from google.oauth2.service_account import Credentials
-import json
 import streamlit as st
+import json
 
 class GoogleSheetHandler:
     def __init__(self, spreadsheet_name_or_id, by_id=False):
@@ -10,15 +10,10 @@ class GoogleSheetHandler:
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
         ]
-
-        try:
-            # Intenta usar las credenciales desde st.secrets
-            creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-            creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-        except Exception:
-            # Si falla, intenta usar el archivo local credentials.json
-            creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
-
+        
+        # ✅ Carga desde st.secrets
+        creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         self.client = gspread.authorize(creds)
         self.valid = True
 
@@ -27,7 +22,8 @@ class GoogleSheetHandler:
                 self.sheet = self.client.open_by_key(spreadsheet_name_or_id)
             else:
                 self.sheet = self.client.open(spreadsheet_name_or_id)
-        except Exception:
+        except Exception as e:
+            st.warning(f"❌ No se pudo abrir el spreadsheet '{spreadsheet_name_or_id}': {e}")
             self.sheet = None
             self.valid = False
 
@@ -39,12 +35,11 @@ class GoogleSheetHandler:
             worksheet = self.sheet.worksheet(worksheet_name)
             data = worksheet.get_all_records()
             return pd.DataFrame(data) if data else pd.DataFrame()
-        except Exception:
+        except Exception as e:
+            st.warning(f"⚠️ No se pudo leer la hoja '{worksheet_name}': {e}")
             return pd.DataFrame()
 
     def save_or_update_row(self, worksheet_name, new_data: dict, key_field="Empresa"):
-        print(f"💾 save_or_update_row ejecutado para hoja '{worksheet_name}' con clave '{new_data.get(key_field)}'")
-
         if not self.valid or not self.sheet:
             return "error_sin_conexion"
 
@@ -64,25 +59,19 @@ class GoogleSheetHandler:
             df = pd.DataFrame(rows, columns=current_headers) if rows else pd.DataFrame(columns=current_headers)
             df.fillna("", inplace=True)
 
-            print("📋 Datos a guardar:", new_data)
-
             ordered_values = [str(new_data.get(col, "")) for col in current_headers]
 
             if key_field in df.columns and new_data.get(key_field, "") in df[key_field].values:
                 idx = df[df[key_field] == new_data[key_field]].index[0] + 2
                 end_col = colnum_to_excel_col(len(current_headers))
                 worksheet.update(f"A{idx}:{end_col}{idx}", [ordered_values])
-                print("✅ Fila actualizada correctamente")
                 return "updated"
             else:
                 worksheet.append_row(ordered_values)
-                print("✅ Fila insertada correctamente")
                 return "inserted"
 
         except Exception as e:
-            print("❌ ERROR en save_or_update_row:", str(e))
-            import traceback
-            traceback.print_exc()
+            st.error(f"❌ ERROR al guardar en Google Sheets: {e}")
             return f"error: {str(e)}"
 
 def colnum_to_excel_col(n):
