@@ -1,12 +1,9 @@
-
 import streamlit as st
-import os
-from pathlib import Path
 import pandas as pd
-
 from componentes import ComponentesManager
 from costos import CostosManager
 from analisis_economico import AnalisisEconomico as AnalisisEconomicoManager
+from google_sheets_handler import SheetsManager
 
 st.set_page_config(
     page_title="Calculadora Solar",
@@ -15,61 +12,56 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.markdown("""
-<style>
-.stApp { max-width: 1600px; padding: 1rem; }
-.stTextInput input, .stSelectbox select {
-    padding: 0.3rem 0.5rem !important; font-size: 0.9rem !important;
-}
-.stDataFrame { font-size: 0.8rem; }
-.stMarkdown h1, .stMarkdown h2, .stMarkdown h3 { margin-top: 0.5rem !important; }
+@st.cache_resource
+def get_sheets_manager():
+    return SheetsManager()
 
-.sidebar-title {
-    font-weight: bold;
-    font-size: 20px;
-    margin-bottom: 1rem;
-}
-
-.sidebar-radio label {
-    font-size: 18px !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-def cargar_excel_local(nombre_archivo):
-    ruta_base = Path(__file__).parent.resolve()
-    ruta_archivo = ruta_base / nombre_archivo
-
-    if not ruta_archivo.exists():
-        st.error(f"❌ No se encontró el archivo local '{nombre_archivo}' en:\n{ruta_archivo}")
-        st.stop()
-
-    try:
-        # Cargar todas las hojas
-        excel = pd.read_excel(ruta_archivo, sheet_name=None)
-        return excel
-    except Exception as e:
-        st.error(f"Error al cargar el archivo '{nombre_archivo}': {str(e)}")
-        st.stop()
+sheets_manager = get_sheets_manager()
 
 
 class SolarAppGUI:
     def __init__(self):
+        self.sheets = sheets_manager
         self.inicializar_datos()
         self.inicializar_managers()
         self.ensure_session_state()
 
     def inicializar_datos(self):
-        with st.spinner("Cargando archivos locales..."):
+        with st.spinner("Cargando datos desde Google Sheets..."):
             if 'df_calculadora' not in st.session_state:
-                calculadora = cargar_excel_local("Calculadora Solar.xlsx")
-                st.session_state.df_calculadora = {
-                    "Paneles": calculadora.get("Paneles Solares", ""),
-                    "Inversores": calculadora.get("Inversores", ""),
-                   "Baterías": calculadora.get("Baterías", ""),
+                st.session_state.df_calculadora = {}
+
+                hojas = {
+                    "Paneles": ("Base de Datos Paneles Solares", "Paneles Solares"),
+                    "Inversores": ("Base de Datos Inversores", "Inversores"),
+                    "Baterías": ("Base de Datos Baterías", "Baterías"),
+                    "Tarifas": ("Base de Datos Tarifas Eléctricas", "Pliego Tarifario"),
+                    "Estructura": ("Base de Datos Materiales Estructura Solar", "Materiales Estructura Solar"),
+                    # Usar ID directo con `by_id=True`
+                    #"Convertidor": ("Base de Datos Convertidor de Alto Voltaje DC", "Convertidor de Alto Voltaje DC"),
                 }
 
+                for clave, (archivo, hoja) in hojas.items():
+                    try:
+                        # Agrega verificación adicional
+                        if "Convertidor" in clave:
+                            # Usa un dataframe vacío como fallback
+                            st.session_state.df_calculadora[clave] = pd.DataFrame({
+                                "Modelo": ["Ejemplo 1", "Ejemplo 2"],
+                                "Voltaje": ["220V", "380V"]
+                            })
+                            continue
+                        
+                        st.session_state.df_calculadora[clave] = self.sheets.get(archivo).read_sheet(hoja)
+                    except Exception as e:
+                        st.warning(f"⚠️ No se pudo cargar {clave}: Usando datos de ejemplo")
+                        # Datos de ejemplo para continuar
+                        st.session_state.df_calculadora[clave] = pd.DataFrame({
+                            "Modelo": ["Ejemplo 1", "Ejemplo 2"],
+                            "Especificaciones": ["Valor 1", "Valor 2"]
+                        })
+                        
+                        
     def inicializar_managers(self):
         from cliente import ClienteManager
         from equipamiento import EquipamientoManager
@@ -139,13 +131,11 @@ class SolarAppGUI:
             }
 
     def mostrar_botones_sidebar(self):
-        # Botones funcionales de Streamlit
         if st.sidebar.button("💾 Guardar Proyecto", use_container_width=True):
             st.session_state.cliente_manager.guardar_proyecto_en_excel()
 
         if st.sidebar.button("🧹 Limpiar Campos", use_container_width=True):
             st.session_state.cliente_manager.limpiar_campos()
-
 
     def run(self):
         st.title("☀️ Calculadora Solar Integral")
