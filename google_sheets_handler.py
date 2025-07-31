@@ -1,8 +1,8 @@
-import streamlit as st
 import gspread
 import pandas as pd
-import json
 from google.oauth2.service_account import Credentials
+import json
+import streamlit as st
 
 class GoogleSheetHandler:
     def __init__(self, spreadsheet_name_or_id, by_id=False):
@@ -11,9 +11,13 @@ class GoogleSheetHandler:
             "https://www.googleapis.com/auth/drive"
         ]
 
-        # 🟢 Usa st.secrets en lugar de credentials.json
-        creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        try:
+            # Intenta usar las credenciales desde st.secrets
+            creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+            creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        except Exception:
+            # Si falla, intenta usar el archivo local credentials.json
+            creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
 
         self.client = gspread.authorize(creds)
         self.valid = True
