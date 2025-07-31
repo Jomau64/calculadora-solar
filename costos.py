@@ -1,7 +1,5 @@
 import streamlit as st
 import pandas as pd
-from google_sheets_handler import GoogleSheetHandler
-from equipamiento import limpiar_float
 
 class CostosManager:
     def __init__(self, session_state):
@@ -39,18 +37,18 @@ class CostosManager:
         cantidad_convertidor = componentes.get("Convertidor de alto voltaje DC", 0)
         cantidad_mppt = componentes.get("Controladores de carga MPPT", 0)
 
+        excel_path = "Calculadora Solar.xlsx"
         fob_ch_panel = 0.0
         fob_ch_inversor = 0.0
 
         # Paneles Solares
         try:
-            sheet_paneles = GoogleSheetHandler("Base de Datos Paneles Solares")
-            df_paneles = sheet_paneles.read_sheet("Paneles Solares")
+            df_paneles = pd.read_excel(excel_path, sheet_name="Paneles Solares")
             df_paneles["Modelo_clean"] = df_paneles["Modelo"].astype(str).str.strip().str.lower()
             panel_sel_clean = panel_sel.strip().lower()
             match = df_paneles[df_paneles["Modelo_clean"].str.contains(panel_sel_clean.split()[-1], na=False)]
             if not match.empty:
-                fob_ch_panel = limpiar_float(match.iloc[0]["FOB CH"])
+                fob_ch_panel = float(match.iloc[0]["FOB CH"])
             else:
                 st.warning(f"No se encontró un modelo de panel compatible con: '{panel_sel}'")
         except Exception as e:
@@ -58,13 +56,12 @@ class CostosManager:
 
         # Inversores
         try:
-            sheet_inversores = GoogleSheetHandler("Base de Datos Inversores")
-            df_inversores = sheet_inversores.read_sheet("Inversores")
+            df_inversores = pd.read_excel(excel_path, sheet_name="Inversores")
             df_inversores["Modelo_clean"] = df_inversores["Modelo"].astype(str).str.strip().str.lower()
             inversor_sel_clean = inversor_sel.strip().lower()
             match = df_inversores[df_inversores["Modelo_clean"].str.contains(inversor_sel_clean.split()[-1], na=False)]
             if not match.empty:
-                fob_ch_inversor = limpiar_float(match.iloc[0]["FOB CH"])
+                fob_ch_inversor = float(match.iloc[0]["FOB CH"])
             else:
                 st.warning(f"No se encontró un modelo de inversor compatible con: '{inversor_sel}'")
         except Exception as e:
@@ -128,8 +125,10 @@ class CostosManager:
         df["Total PVP"] = df["Cantidad"] * df["PVP"]
         df["Ganancia"] = df["Total PVP"] - df["Total UIO"]
 
+        # ✅ Línea necesaria para que análisis económico acceda al bloque de inversión
         self.session_state["costos_data"] = df
 
+        # Totales generales
         inversion_total = df["Total UIO"].sum()
         pvp_total = df["Total PVP"].sum()
         ganancia_total = df["Ganancia"].sum()

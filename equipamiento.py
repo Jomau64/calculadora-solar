@@ -1,17 +1,8 @@
-from google_sheets_handler import GoogleSheetHandler
 import pandas as pd
+from pathlib import Path
 import streamlit as st
 import math
 
-
-
-# ✅ Función global para limpiar valores numéricos con símbolos
-def limpiar_float(valor):
-    try:
-        texto = str(valor).replace(',', '').replace('$', '').replace('VDC', '').replace('V', '').replace('W', '').replace('kW', '').strip()
-        return float(texto)
-    except:
-        return 0.0
 class EquipamientoManager:
     def __init__(self, session_state):
         self.session_state = session_state
@@ -21,16 +12,7 @@ class EquipamientoManager:
             'Convertidor de Alto Voltaje DC', 'Materiales Estructura Solar',
             'Materiales DB'
         ]
-
-        self.origen_hojas = {
-            'Paneles Solares': 'Base de Datos Paneles Solares',
-            'Inversores': 'Base de Datos Inversores',
-            'Baterías': 'Base de Datos Baterías',
-            'Convertidor de Alto Voltaje DC': 'Base de Datos Convertidor de Alto Voltaje DC',
-            'Materiales Estructura Solar': 'Base de Datos Materiales Estructura Solar',
-            'Materiales DB': 'Base de Datos Materiales DB'
-        }
-
+        
         self.inicializar_session_state()
         self.cargar_datos()
     
@@ -78,30 +60,39 @@ class EquipamientoManager:
 
     def cargar_datos(self):
         try:
-            for hoja in self.hojas_equipamientos:
-                nombre_bd = self.origen_hojas.get(hoja)
-                if nombre_bd:
-                    handler = GoogleSheetHandler(nombre_bd)
-                    df = handler.read_sheet(hoja)
-                    if not df.empty:
-                        df.columns = [col.strip() for col in df.columns]
-                        if 'Marca' in df.columns and 'Modelo' in df.columns:
-                            df['nombre_display'] = df['Marca'] + " " + df['Modelo']
-                        else:
-                            nombre_col = next((col for col in df.columns if 'nombre' in col.lower() or 'modelo' in col.lower() or 'tipo' in col.lower()), df.columns[0])
-                            df['nombre_display'] = df[nombre_col].astype(str)
-                        df = df.dropna(how='all').fillna("")
-                        if hoja == 'Paneles Solares' and 'Caras' not in df.columns:
-                            df['Caras'] = '1'
-                        if hoja == 'Inversores' and 'Tipo' not in df.columns:
-                            df['Tipo'] = 'No especificado'
-                        self.df_equipamientos[hoja] = df
+            desktop_path = Path.home() / 'Desktop'
+            folder_path = desktop_path / 'Calculadora_Solar'
+            calc_path = folder_path / 'Calculadora Solar.xlsx'
+            if calc_path.exists():
+                excel_file = pd.ExcelFile(calc_path)
+                hojas_existentes = excel_file.sheet_names
+                for hoja in self.hojas_equipamientos:
+                    if hoja in hojas_existentes:
+                        try:
+                            df = pd.read_excel(calc_path, sheet_name=hoja)
+                            if not df.empty:
+                                df.columns = [col.strip() for col in df.columns]
+                                if 'Marca' in df.columns and 'Modelo' in df.columns:
+                                    df['nombre_display'] = df['Marca'] + " " + df['Modelo']
+                                else:
+                                    nombre_col = next((col for col in df.columns if 'nombre' in col.lower() or 'modelo' in col.lower() or 'tipo' in col.lower()), df.columns[0])
+                                    df['nombre_display'] = df[nombre_col].astype(str)
+                                df = df.dropna(how='all').fillna("")
+                                if hoja == 'Paneles Solares' and 'Caras' not in df.columns:
+                                    df['Caras'] = '1'
+                                if hoja == 'Inversores' and 'Tipo' not in df.columns:
+                                    df['Tipo'] = 'No especificado'
+                                self.df_equipamientos[hoja] = df
+                            else:
+                                self.df_equipamientos[hoja] = pd.DataFrame()
+                        except Exception as e:
+                            st.error(f"Error al cargar hoja {hoja}: {str(e)}")
+                            self.df_equipamientos[hoja] = pd.DataFrame()
                     else:
                         self.df_equipamientos[hoja] = pd.DataFrame()
-                else:
-                    self.df_equipamientos[hoja] = pd.DataFrame()
+                        st.warning(f"Hoja '{hoja}' no encontrada en el archivo Excel. Se creará un DataFrame vacío.")
         except Exception as e:
-            st.error(f"Error al cargar datos desde Google Sheets: {str(e)}")
+            st.error(f"Error general: {str(e)}")
     
     def formatear_decimal(self, valor, decimales=2):
         try:
@@ -754,24 +745,24 @@ class EquipamientoManager:
 
     def mostrar_detalles_inversor(self, inversor_data):
         st.subheader(f"{inversor_data.get('Marca', '')} {inversor_data.get('Modelo', '')}")
-
+        
         panel_seleccionado = self.session_state['equipamiento_seleccionado'].get('Paneles Solares')
         voc_panel = 0
         max_panels_per_string = "N/A"
         max_panel_per_inverter = "N/A"
-
+        
         if panel_seleccionado and 'Paneles Solares' in self.df_equipamientos:
             try:
                 panel_df = self.df_equipamientos['Paneles Solares']
                 panel_data = panel_df[panel_df['nombre_display'] == panel_seleccionado].iloc[0].to_dict()
-                voc_original = limpiar_float(panel_data.get('VOC', 0))
+                voc_original = float(panel_data.get('VOC', 0))
                 voc_panel = voc_original * 1.028
             except:
                 voc_panel = 0
-
+        
         try:
-            max_pv_input_voltage = limpiar_float(inversor_data.get('Max PV Input Voltage', 0))
-            strings = limpiar_float(inversor_data.get('Strings', 0))
+            max_pv_input_voltage = float(inversor_data.get('Max PV Input Voltage', 0))
+            strings = float(inversor_data.get('Strings', 0))
             if voc_panel > 0 and max_pv_input_voltage > 0 and strings > 0:
                 max_panels_per_string = max_pv_input_voltage / voc_panel
                 max_panels_per_string_rounded = int(max_panels_per_string)
@@ -779,14 +770,14 @@ class EquipamientoManager:
         except:
             max_panels_per_string_rounded = "N/A"
             max_panel_per_inverter = "N/A"
-
+        
         tipo_inversor = inversor_data.get('Tipo', 'No especificado')
         if 'híbrido' in tipo_inversor.lower() or 'hibrido' in tipo_inversor.lower():
             tipo_inversor = "Híbrido"
         elif 'string' in tipo_inversor.lower():
             tipo_inversor = "String"
-
-        st.markdown("""<style>...</style>""", unsafe_allow_html=True)  # estilo omitido
+        
+        st.markdown("""<style>...</style>""", unsafe_allow_html=True)  # omito estilo por brevedad
 
         st.markdown(f"""
         <table class="inversor-table">
@@ -795,19 +786,19 @@ class EquipamientoManager:
             <tr><td>Capacidad</td><td>{self.formatear_decimal(inversor_data.get('Capacidad', ''))} kW</td></tr>
             <tr><td>Fases</td><td>{inversor_data.get('Fases', '')}</td></tr>
             <tr><td>Voltage AC</td><td>{inversor_data.get('Voltage AC', '')}</td></tr>
-            <tr><td>Max PV Input Voltage</td><td>{int(limpiar_float(inversor_data.get('Max PV Input Voltage', 0)))} V</td></tr>
-            <tr><td>Max PV Acess Power</td><td>{int(limpiar_float(inversor_data.get('Max PV Acess Power', 0)))} W</td></tr>
-            <tr><td>MPPT</td><td>{int(limpiar_float(inversor_data.get('MPPT', 0)))}</td></tr>
-            <tr><td>Strings</td><td>{int(limpiar_float(inversor_data.get('Strings', 0)))}</td></tr>
+            <tr><td>Max PV Input Voltage</td><td>{int(float(inversor_data.get('Max PV Input Voltage', 0)))} V</td></tr>
+            <tr><td>Max PV Acess Power</td><td>{int(float(inversor_data.get('Max PV Acess Power', 0)))} W</td></tr>
+            <tr><td>MPPT</td><td>{int(float(inversor_data.get('MPPT', 0)))}</td></tr>
+            <tr><td>Strings</td><td>{int(float(inversor_data.get('Strings', 0)))}</td></tr>
             <tr><td>Max Panels per string</td><td>{max_panels_per_string_rounded}</td></tr>
             <tr><td>Max Panel per Inverter</td><td>{max_panel_per_inverter}</td></tr>
-            <tr><td>Battery Voltage</td><td>{limpiar_float(inversor_data.get('Battery Voltage', 0))} V</td></tr>
+            <tr><td>Battery Voltage</td><td>{inversor_data.get('Battery Voltage', '')}</td></tr>
         </table>
         """, unsafe_allow_html=True)
-
+        
         if not panel_seleccionado:
             st.warning("⚠️ Para calcular 'Max Panels per string' y 'Max Panel per Inverter', primero seleccione un panel solar")
-
+        
         st.markdown(f"**PVP:** ${self.formatear_pvp(inversor_data.get('PVP', ''))}")
     
     def mostrar_detalles_bateria(self, bateria_data):

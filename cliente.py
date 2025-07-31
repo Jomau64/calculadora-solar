@@ -1,8 +1,10 @@
-from google_sheets_handler import GoogleSheetHandler
 import pandas as pd
-import streamlit as st
 from pathlib import Path
-import ast
+import streamlit as st
+import logging
+import numpy as np
+from openpyxl import load_workbook, Workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
 class ClienteManager:
     def __init__(self, session_state):
         self.session_state = session_state
@@ -26,17 +28,9 @@ class ClienteManager:
             "kW/h Demanda", "Total Demanda"
         ]
 
-        self.sheet_clientes = GoogleSheetHandler("Base de Datos Clientes")
-        self.sheet_tarifas = GoogleSheetHandler("Base de Datos Tarifas Eléctricas")
-        self.sheet_paneles = GoogleSheetHandler("Base de Datos Paneles Solares")
-        self.sheet_inversores = GoogleSheetHandler("Base de Datos Inversores")
-        self.sheet_estructura = GoogleSheetHandler("Base de Datos Materiales Estructura Solar")
-        self.sheet_costos = GoogleSheetHandler("Base de Datos Clientes")  # Reutilizado
-        self.sheet_analisis = GoogleSheetHandler("Base de Datos Clientes")  # Reutilizado
-        #self.sheet_convertidor = GoogleSheetHandler("Base de Datos Convertidor de Alto Voltaje DC")
-       
         self.inicializar_session_state()
         self.cargar_datos()
+
     def inicializar_session_state(self):
         if 'cliente_data' not in self.session_state:
             self.session_state['cliente_data'] = {campo: "" for campo in self.campos_principales}
@@ -101,208 +95,222 @@ class ClienteManager:
                 }
             }
 
-
     # CORRECCIÓN CLAVE: MÉTODO DE GUARDADO FUNCIONAL
     
     def guardar_proyecto_en_excel(self):
-        empresa = self.session_state['cliente_data']['Empresa'].strip()
-        if not empresa:
-            st.error("Nombre de empresa requerido")
-            return
-
         try:
-            clave_empresa = self.session_state.get("empresa_original", empresa)
+            from openpyxl import load_workbook
+            from openpyxl.utils.dataframe import dataframe_to_rows
 
-            # Recalcular arrays
-            arrays_config = []
-            try:
-                num_arrays = int(self.session_state["cliente_data"].get("Arrays", "0"))
-            except:
-                num_arrays = 0
+            desktop_path = Path.home() / 'Desktop'
+            folder_path = desktop_path / 'Calculadora_Solar'
+            folder_path.mkdir(parents=True, exist_ok=True)
+            archivo = folder_path / "Calculadora Solar.xlsx"
 
-            for i in range(1, num_arrays + 1):
-                x_key = f"Array_{i}_X"
-                y_key = f"Array_{i}_Y"
-                x = self.session_state["array_data"].get(x_key, "0")
-                y = self.session_state["array_data"].get(y_key, "0")
-                try:
-                    x_val = float(x.replace(",", ".")) if x else 0.0
-                    y_val = float(y.replace(",", ".")) if y else 0.0
-                    area = x_val * y_val
-                except:
-                    area = 0.0
-                arrays_config.append({
-                    "Array": f"Array {i}",
-                    "X": x,
-                    "Y": y,
-                    "Área": f"{area:.2f}"
-                })
-            self.session_state["distribucion_data"]["arrays_config"] = arrays_config
+            empresa = self.session_state.get("cliente_data", {}).get("Empresa", "").strip()
+            if not empresa:
+                st.error("❌ El campo 'Empresa' es obligatorio.")
+                return
 
-            # Cliente
-            datos_cliente = {
-                campo: self.session_state["cliente_data"].get(campo, "") for campo in self.campos_principales
+            def convert_dict(d): return {k: str(v) for k, v in d.items()} if isinstance(d, dict) else {}
+
+            # Armar cada bloque como DataFrame
+            df_clientes = pd.DataFrame([{
+                **self.session_state.get("cliente_data", {}),
+                **self.session_state.get("consumo_data", {}),
+                **self.session_state.get("requerimiento_data", {}),
+                **{
+                    f"Array {i} {dim}": self.session_state["array_data"].get(f"Array_{i}_{dim}", "0")
+                    for i in range(1, 9) for dim in ['X', 'Y']
+                }
+            }])
+
+            equip = self.session_state.get("equipamiento_seleccionado", {})
+            df_equipamiento = pd.DataFrame([{
+                "Empresa": empresa,
+                "Paneles Solares": equip.get("Paneles Solares", ""),
+                "Inversores": equip.get("Inversores", ""),
+                "Baterías": equip.get("Baterías", ""),
+                "Convertidor de Alto Voltaje DC": equip.get("Convertidor de Alto Voltaje DC", ""),
+                "Materiales Estructura Solar": equip.get("Materiales Estructura Solar", ""),
+                "Materiales DB": equip.get("Materiales DB", "")
+            }])
+
+            df_distribucion = pd.DataFrame(self.session_state.get("distribucion_data", {}).get("arrays_config", []))
+            if not df_distribucion.empty:
+                df_distribucion["Empresa"] = empresa
+
+            estructura_raw = self.session_state.get("estructura_total_materiales", {})
+            df_estructura = pd.DataFrame([{
+                "Empresa": empresa,
+                "Materiales": str(estructura_raw)
+            }])
+
+            df_generacion = pd.DataFrame([convert_dict(self.session_state.get("generacion_data", {}))])
+            df_generacion["Empresa"] = empresa
+
+            df_componentes = pd.DataFrame([convert_dict(self.session_state.get("componentes_principales", {}))])
+            df_componentes["Empresa"] = empresa
+
+            df_costos = pd.DataFrame(self.session_state.get("costos_data", []))
+            if not df_costos.empty:
+                df_costos["Empresa"] = empresa
+
+            df_analisis = pd.DataFrame([convert_dict(self.session_state.get("analisis_economico", {}))])
+            df_analisis["Empresa"] = empresa
+
+            hojas_proyecto = {
+                "Clientes": df_clientes,
+                "Equipamiento Seleccionado": df_equipamiento,
+                "Distribución Solar": df_distribucion,
+                "Estructura Solar": df_estructura,
+                "Generación": df_generacion,
+                "Componentes Principales": df_componentes,
+                "Costos": df_costos,
+                "Análisis Económico": df_analisis
             }
-            datos_cliente.update(self.session_state["consumo_data"])
-            datos_cliente.update(self.session_state["requerimiento_data"])
-            for key, value in self.session_state["array_data"].items():
-                if "_" in key:
-                    partes = key.split("_")
-                    nombre = f"Array {partes[1]} {partes[2]}"
-                    datos_cliente[nombre] = value
-            datos_cliente["Empresa"] = clave_empresa
-            self.sheet_clientes.save_or_update_row("Clientes", datos_cliente)
 
-            # Equipamiento
-            datos_equipamiento = {
-                "Empresa": clave_empresa,
-                "Paneles Solares": self.session_state["equipamiento_seleccionado"].get("Paneles Solares", ""),
-                "Inversores": self.session_state["equipamiento_seleccionado"].get("Inversores", ""),
-                "Baterías": self.session_state["equipamiento_seleccionado"].get("Baterías", ""),
-                "Convertidor de Alto Voltaje DC": self.session_state["equipamiento_seleccionado"].get("Convertidor de Alto Voltaje DC", ""),
-                "Materiales Estructura Solar": self.session_state["equipamiento_seleccionado"].get("Materiales Estructura Solar", ""),
-                "Materiales DB": self.session_state["equipamiento_seleccionado"].get("Materiales DB", "")
-            }
-            self.sheet_clientes.save_or_update_row("Equipamiento Seleccionado", datos_equipamiento)
+            hojas_catalogo = [
+                "Pliego Tarifario", "Paneles Solares", "Inversores", "Baterías",
+                "Convertidor de Alto Voltaje DC", "Materiales Estructura Solar", "Materiales DB"
+            ]
 
-            # Distribución
-            for array in self.session_state['distribucion_data']['arrays_config']:
-                if isinstance(array, dict):
-                    array_con_empresa = dict(array)
-                    array_con_empresa["Empresa"] = clave_empresa
-                    self.sheet_clientes.save_or_update_row("Distribución Solar", array_con_empresa)
+            # Cargar archivo si existe
+            if archivo.exists():
+                wb = load_workbook(archivo)
+            else:
+                from openpyxl import Workbook
+                wb = Workbook()
+                wb.remove(wb.active)
 
-            # Estructura
-            estructura_data = {
-                "Empresa": clave_empresa,
-                "Materiales": str(self.session_state.get("estructura_total_materiales", "[]"))
-            }
-            self.sheet_clientes.save_or_update_row("Estructura Solar", estructura_data)
+            for hoja, df_nuevo in hojas_proyecto.items():
+                if hoja in hojas_catalogo:
+                    continue
 
-            # Generación
-            gen_data = self.session_state.get("generacion_data", {})
-            if isinstance(gen_data, dict):
-                gen_data["Empresa"] = clave_empresa
-                self.sheet_clientes.save_or_update_row("Generación", gen_data)
+                # Reemplazar cliente en hoja existente
+                if hoja in wb.sheetnames:
+                    hoja_df = pd.read_excel(archivo, sheet_name=hoja)
+                    if "Empresa" in hoja_df.columns:
+                        hoja_df = hoja_df[hoja_df["Empresa"] != empresa]
+                        df_final = pd.concat([hoja_df, df_nuevo], ignore_index=True)
+                    else:
+                        df_final = df_nuevo
+                    wb.remove(wb[hoja])
+                else:
+                    df_final = df_nuevo
 
-            # Componentes
-            comp_data = self.session_state.get("componentes_principales", {})
-            if isinstance(comp_data, dict):
-                comp_data["Empresa"] = clave_empresa
-                self.sheet_clientes.save_or_update_row("Componentes Principales", comp_data)
+                ws = wb.create_sheet(hoja)
+                for row in dataframe_to_rows(df_final, index=False, header=True):
+                    ws.append([str(c) if isinstance(c, dict) else c for c in row])
 
-            # Costos
-            costos = self.session_state.get("costos_data", [])
-            if isinstance(costos, list):
-                for fila in costos:
-                    fila["Empresa"] = clave_empresa
-                    self.sheet_clientes.save_or_update_row("Costos", fila)
-
-            # Análisis Económico
-            analisis = self.session_state.get("analisis_economico", {})
-            if isinstance(analisis, dict):
-                analisis["Empresa"] = clave_empresa
-                self.sheet_clientes.save_or_update_row("Análisis Económico", analisis)
-
-            # Confirmación
-            self.session_state["empresa_original"] = empresa
-            self.nuevo_cliente = False
-            self.cargar_proyecto_completo(clave_empresa)
-            st.success(f"✅ Proyecto '{empresa}' guardado con éxito.")
+            wb.save(archivo)
+            st.success(f"✅ Proyecto '{empresa}' guardado correctamente.")
+            self.session_state['nuevo_cliente'] = False
 
         except Exception as e:
-            st.error(f"❌ Error crítico: {str(e)}")
+            st.error(f"❌ Error al guardar el proyecto: {str(e)}")
             import traceback
-            traceback.print_exc()
-
-      
+            st.error(traceback.format_exc())
 
 
     def cargar_proyecto_completo(self, nombre_cliente):
-        if not nombre_cliente:
-            st.warning("Seleccione un cliente válido.")
-            return
-
         try:
-            df_clientes = self.sheet_clientes.read_sheet("Clientes")
-            fila_cliente = df_clientes[df_clientes["Empresa"] == nombre_cliente].iloc[0].to_dict()
-            self.session_state["cliente_data"] = {campo: fila_cliente.get(campo, "") for campo in self.campos_principales}
-            self.session_state["consumo_data"] = {k: fila_cliente.get(k, "") for k in self.campos_consumo}
-            self.session_state["requerimiento_data"] = {k: fila_cliente.get(k, "") for k in self.session_state.get("requerimiento_data", {}).keys()}
+            desktop_path = Path.home() / 'Desktop'
+            folder_path = desktop_path / 'Calculadora_Solar'
+            archivo = folder_path / "Calculadora Solar.xlsx"
+        
+            if not archivo.exists():
+                st.error(f"Archivo no encontrado: {archivo}")
+                return
 
-            self.session_state["array_data"] = {}
-            for i in range(1, 9):
-                for dim in ['X', 'Y']:
-                    key = f"Array {i} {dim}"
-                    alt_key = f"Array_{i}_{dim}"
-                    value = fila_cliente.get(key, fila_cliente.get(alt_key, ""))
-                    self.session_state["array_data"][f"Array_{i}_{dim}"] = value
+            # Leer todas las hojas
+            datos = pd.read_excel(archivo, sheet_name=None)
+        
+            # Cargar datos básicos del cliente
+            cliente_df = datos.get("Clientes", pd.DataFrame())
+            cliente_row = cliente_df[cliente_df["Empresa"] == nombre_cliente]
+            if cliente_row.empty:
+                st.error(f"Cliente '{nombre_cliente}' no encontrado")
+                return
+        
+            # ✅ Cargar datos desde hoja "Clientes"
+            self.cargar_datos_cliente(cliente_row.iloc[0])
 
-            self.session_state["empresa_original"] = nombre_cliente
+            # ✅ Cargar equipamiento
+            equipamiento_df = datos.get("Equipamiento Seleccionado", pd.DataFrame())
+            if not equipamiento_df.empty:
+                eq_row = equipamiento_df[equipamiento_df["Empresa"] == nombre_cliente]
+                if not eq_row.empty:
+                    eq_data = eq_row.iloc[0].fillna("").to_dict()
+                    self.session_state["equipamiento_seleccionado"] = {
+                        "Paneles Solares": eq_data.get("Paneles Solares", ""),
+                        "Inversores": eq_data.get("Inversores", ""),
+                        "Baterías": eq_data.get("Baterías", ""),
+                        "Convertidor de Alto Voltaje DC": eq_data.get("Convertidor de Alto Voltaje DC", ""),
+                        "Materiales Estructura Solar": eq_data.get("Materiales Estructura Solar", ""),
+                        "Materiales DB": eq_data.get("Materiales DB", ""),
+                        "Panel Solar": {},
+                        "Inversor": {}
+                    }
+                    self._cargar_datos_tecnicos_desde_catalogo()
+
+            # Cargar distribución solar
+            distribucion_df = datos.get("Distribución Solar", pd.DataFrame())
+            if not distribucion_df.empty:
+                dist_row = distribucion_df[distribucion_df["Empresa"] == nombre_cliente]
+                if not dist_row.empty:
+                    self.session_state["distribucion_data"]["arrays_config"] = dist_row.replace({np.nan: None}).to_dict(orient='records')
+
+            # Cargar estructura solar
+            estructura_df = datos.get("Estructura Solar", pd.DataFrame())
+            if not estructura_df.empty:
+                est_row = estructura_df[estructura_df["Empresa"] == nombre_cliente]
+                if not est_row.empty:
+                    self.session_state["estructura_total_materiales"] = est_row.replace({np.nan: None}).to_dict(orient='records')
+
+            # Cargar generación
+            generacion_df = datos.get("Generación", pd.DataFrame())
+            if not generacion_df.empty:
+                gen_row = generacion_df[generacion_df["Empresa"] == nombre_cliente]
+                if not gen_row.empty:
+                    self.session_state["generacion_data"] = gen_row.iloc[0].fillna("0").to_dict()
+
+            # Cargar componentes principales
+            componentes_df = datos.get("Componentes Principales", pd.DataFrame())
+            if not componentes_df.empty:
+                comp_row = componentes_df[componentes_df["Empresa"] == nombre_cliente]
+                if not comp_row.empty:
+                    self.session_state["componentes_principales"] = comp_row.iloc[0].fillna("0").to_dict()
+
+            # Cargar costos
+            costos_df = datos.get("Costos", pd.DataFrame())
+            if not costos_df.empty:
+                cost_row = costos_df[costos_df["Empresa"] == nombre_cliente]
+                if not cost_row.empty:
+                    self.session_state["costos_data"] = cost_row.replace({np.nan: None}).to_dict(orient='records')
+
+            # Cargar análisis económico
+            analisis_df = datos.get("Análisis Económico", pd.DataFrame())
+            if not analisis_df.empty:
+                ana_row = analisis_df[analisis_df["Empresa"] == nombre_cliente]
+                if not ana_row.empty:
+                    self.session_state["analisis_economico"] = ana_row.iloc[0].fillna("0").to_dict()
+
+            st.success(f"✅ Proyecto '{nombre_cliente}' cargado exitosamente")
             self.nuevo_cliente = False
 
-            # Equipamiento
-            df_equip = self.sheet_clientes.read_sheet("Equipamiento Seleccionado")
-            fila_equip = df_equip[df_equip["Empresa"] == nombre_cliente]
-            if not fila_equip.empty:
-                self.session_state["equipamiento_seleccionado"] = fila_equip.iloc[0].to_dict()
-
-            # Distribución solar
-            df_dist = self.sheet_clientes.read_sheet("Distribución Solar")
-            arrays_cliente = df_dist[df_dist["Empresa"] == nombre_cliente]
-            if not arrays_cliente.empty:
-                self.session_state["distribucion_data"] = {
-                    "arrays_config": arrays_cliente.drop(columns=["Empresa"]).to_dict(orient="records")
-                }
-
-                # ✅ Reconstruir array_data desde arrays_config
-                arrays_config = self.session_state["distribucion_data"]["arrays_config"]
-                for i, array in enumerate(arrays_config):
-                    x_key = f"Array_{i+1}_X"
-                    y_key = f"Array_{i+1}_Y"
-                    self.session_state["array_data"][x_key] = array.get("X", "")
-                    self.session_state["array_data"][y_key] = array.get("Y", "")
-
-            # Estructura
-            df_estructura = self.sheet_clientes.read_sheet("Estructura Solar")
-            fila_estructura = df_estructura[df_estructura["Empresa"] == nombre_cliente]
-            if not fila_estructura.empty:
-                materiales_str = fila_estructura.iloc[0].get("Materiales", "[]")
-                try:
-                    self.session_state["estructura_total_materiales"] = ast.literal_eval(materiales_str) if isinstance(materiales_str, str) else materiales_str
-                except Exception:
-                    self.session_state["estructura_total_materiales"] = []
-            # Generación
-            df_gen = self.sheet_clientes.read_sheet("Generación")
-            fila_gen = df_gen[df_gen["Empresa"] == nombre_cliente]
-            if not fila_gen.empty:
-                self.session_state["generacion_data"] = fila_gen.iloc[0].to_dict()
-
-            # Componentes
-            df_comp = self.sheet_clientes.read_sheet("Componentes Principales")
-            fila_comp = df_comp[df_comp["Empresa"] == nombre_cliente]
-            if not fila_comp.empty:
-                self.session_state["componentes_principales"] = fila_comp.iloc[0].to_dict()
-
-            # Costos
-            df_costos = self.sheet_clientes.read_sheet("Costos")
-            fila_costos = df_costos[df_costos["Empresa"] == nombre_cliente]
-            if not fila_costos.empty:
-                self.session_state["costos_data"] = fila_costos.drop(columns=["Empresa"]).to_dict(orient="records")
-
-            # Análisis Económico
-            df_ae = self.sheet_clientes.read_sheet("Análisis Económico")
-            fila_ae = df_ae[df_ae["Empresa"] == nombre_cliente]
-            if not fila_ae.empty:
-                self.session_state["analisis_economico"] = fila_ae.iloc[0].to_dict()
+            # Verificar carga
+            self._verificar_carga_correcta()
 
         except Exception as e:
-            st.error(f"❌ Error al cargar datos desde Google Sheets: {e}")
+            st.error(f"❌ Error al cargar proyecto: {str(e)}")
+            import traceback
+            st.error(traceback.format_exc())
 
             
     def cargar_datos_cliente(self, fila_cliente):
         """Carga los datos básicos del cliente desde una fila del DataFrame"""
-        st.subheader("📥 Cargando datos del cliente desde Google Sheets...")
+        st.subheader("📥 Cargando datos del cliente desde Excel...")
 
         # Normalizar nombres de columnas si es necesario
         def normalizar_clave(clave):
@@ -359,7 +367,7 @@ class ClienteManager:
 
 
     def _cargar_datos_tecnicos_desde_catalogo(self):
-        """Carga los datos técnicos del panel e inversor desde Google Sheets"""
+        """Carga los datos técnicos del panel e inversor desde el catálogo"""
         try:
             panel_nombre = self.session_state["equipamiento_seleccionado"].get("Paneles Solares", "")
             inversor_nombre = self.session_state["equipamiento_seleccionado"].get("Inversores", "")
@@ -367,26 +375,37 @@ class ClienteManager:
             if not panel_nombre and not inversor_nombre:
                 return
 
-            # Cargar desde Google Sheets
-            df_paneles = self.sheet_paneles.read_sheet("Paneles Solares")
-            df_inversores = self.sheet_inversores.read_sheet("Inversores")
+            desktop_path = Path.home() / 'Desktop'
+            folder_path = desktop_path / 'Calculadora_Solar'
+            path_catalogo = folder_path / 'Calculadora Solar.xlsx'
+            if not path_catalogo.exists():
+                st.warning("⚠️ Archivo de catálogo técnico no encontrado")
+                return
 
-            if panel_nombre and not df_paneles.empty:
-                panel_match = df_paneles[
-                    df_paneles["Modelo"].str.strip().str.lower() == panel_nombre.strip().lower()
-                ]
-                if not panel_match.empty:
-                    self.session_state["equipamiento_seleccionado"]["Panel Solar"] = panel_match.iloc[0].fillna("").to_dict()
+            catalogos = pd.read_excel(path_catalogo, sheet_name=None)
 
-            if inversor_nombre and not df_inversores.empty:
-                inversor_match = df_inversores[
-                    df_inversores["Modelo"].str.strip().str.lower() == inversor_nombre.strip().lower()
-                ]
-                if not inversor_match.empty:
-                    self.session_state["equipamiento_seleccionado"]["Inversor"] = inversor_match.iloc[0].fillna("").to_dict()
+            # Cargar datos del panel solar
+            if panel_nombre:
+                paneles_df = catalogos.get("Paneles Solares", pd.DataFrame())
+                if not paneles_df.empty:
+                    panel_match = paneles_df[
+                        paneles_df["Modelo"].str.strip().str.lower() == panel_nombre.strip().lower()
+                    ]
+                    if not panel_match.empty:
+                        self.session_state["equipamiento_seleccionado"]["Panel Solar"] = panel_match.iloc[0].fillna("").to_dict()
+
+            # Cargar datos del inversor
+            if inversor_nombre:
+                inversores_df = catalogos.get("Inversores", pd.DataFrame())
+                if not inversores_df.empty:
+                    inversor_match = inversores_df[
+                        inversores_df["Modelo"].str.strip().str.lower() == inversor_nombre.strip().lower()
+                    ]
+                    if not inversor_match.empty:
+                        self.session_state["equipamiento_seleccionado"]["Inversor"] = inversor_match.iloc[0].fillna("").to_dict()
 
         except Exception as e:
-            st.warning(f"⚠️ Error al cargar datos técnicos desde Google Sheets: {str(e)}")
+            st.warning(f"⚠️ Error al cargar datos técnicos: {str(e)}")
 
     def _verificar_carga_correcta(self):
         """Verifica que todos los datos se cargaron correctamente"""
@@ -470,28 +489,30 @@ class ClienteManager:
             st.json(datos_inversor)
 
     def _obtener_lista_paneles(self):
-        """Devuelve lista de modelos de paneles solares desde Google Sheets"""
+        """Devuelve lista de paneles disponibles (debe implementarse según tu catálogo)"""
         try:
-            df = self.sheet_paneles.read_sheet("Paneles Solares")
-            if not df.empty and "Modelo" in df.columns:
-                return df["Modelo"].dropna().tolist()
-        except Exception as e:
-            st.warning(f"⚠️ No se pudo cargar la lista de paneles: {str(e)}")
-
-        # Lista por defecto si falla la lectura
-        return ["Jinko Tiger Neo Mono 605", "Jinko Tiger Neo Mono 595"]
+            desktop_path = Path.home() / 'Desktop'
+            folder_path = desktop_path / 'Calculadora_Solar'
+            path_catalogo = folder_path / 'Calculadora Solar.xlsx'
+            if path_catalogo.exists():
+                paneles_df = pd.read_excel(path_catalogo, sheet_name="Paneles Solares")
+                return paneles_df["Modelo"].tolist()
+        except:
+            pass
+        return ["Jinko Tiger Neo Mono 605", "Jinko Tiger Neo Mono 595"]  # Default
 
     def _obtener_lista_inversores(self):
-        """Devuelve lista de modelos de inversores desde Google Sheets"""
+        """Devuelve lista de inversores disponibles (debe implementarse según tu catálogo)"""
         try:
-            df = self.sheet_inversores.read_sheet("Inversores")
-            if not df.empty and "Modelo" in df.columns:
-                return df["Modelo"].dropna().tolist()
-        except Exception as e:
-            st.warning(f"⚠️ No se pudo cargar la lista de inversores: {str(e)}")
-
-        # Lista por defecto si falla la lectura
-        return ["Growatt MAC 70KTL3-X MV", "Deye SUN-50K-SG01HP3-US-BM4-277V"]
+            desktop_path = Path.home() / 'Desktop'
+            folder_path = desktop_path / 'Calculadora_Solar'
+            path_catalogo = folder_path / 'Calculadora Solar.xlsx'
+            if path_catalogo.exists():
+                inversores_df = pd.read_excel(path_catalogo, sheet_name="Inversores")
+                return inversores_df["Modelo"].tolist()
+        except:
+            pass
+        return ["Growatt MAC 70KTL3-X MV", "Deye SUN-50K-SG01HP3-US-BM4-277V"]  # Default
 
     def redondear_especial(self, valor):
         try:
@@ -506,57 +527,84 @@ class ClienteManager:
     
     def cargar_datos(self):
         try:
-            self.df_clientes = self.sheet_clientes.read_sheet("Clientes")
-            if not self.df_clientes.empty:
-                self.df_clientes.columns = [col.strip() for col in self.df_clientes.columns]
-
-                for campo in self.campos_principales + self.campos_consumo:
-                    if campo not in self.df_clientes.columns:
-                        self.df_clientes[campo] = ""
-
-                for i in range(1, 9):
-                    for dim in ['X', 'Y']:
-                        col_standard = f"Array {i} {dim}"
-                        if col_standard not in self.df_clientes.columns:
-                            self.df_clientes[col_standard] = ""
-
-                if 'Arrays' in self.df_clientes.columns:
-                    self.df_clientes['Arrays'] = pd.to_numeric(
-                        self.df_clientes['Arrays'], 
-                        errors='coerce'
-                    ).fillna(0).astype(int)
-
-                self.df_clientes = self.df_clientes.fillna("")
-
-            self.df_tarifas = self.sheet_tarifas.read_sheet("Pliego Tarifario")
-            if not self.df_tarifas.empty:
-                self.df_tarifas.columns = [col.strip() for col in self.df_tarifas.columns]
-                codigo_col = next((col for col in self.df_tarifas.columns if 'código' in col.lower() or 'codigo' in col.lower()), None)
-                tipo_col = next((col for col in self.df_tarifas.columns if 'tipo' in col.lower() or 'descripción' in col.lower() or 'descripcion' in col.lower()), None)
-                tarifario_col = next((col for col in self.df_tarifas.columns if 'tarifario' in col.lower()), None)
-                tension_col = next((col for col in self.df_tarifas.columns if 'tensión' in col.lower() or 'tension' in col.lower()), None)
-                voltaje_col = next((col for col in self.df_tarifas.columns if 'voltaje' in col.lower()), None)
-
-                if codigo_col:
-                    for _, row in self.df_tarifas.iterrows():
-                        codigo = str(row[codigo_col]) if pd.notna(row[codigo_col]) else ""
-                        if codigo:
-                            tipo = str(row[tipo_col]) if tipo_col and pd.notna(row[tipo_col]) else ""
-                            tarifario = str(row[tarifario_col]) if tarifario_col and pd.notna(row[tarifario_col]) else ""
-                            tension = str(row[tension_col]) if tension_col and pd.notna(row[tension_col]) else ""
-                            voltaje = str(row[voltaje_col]) if voltaje_col and pd.notna(row[voltaje_col]) else ""
-
-                            self.tarifa_info[codigo] = {
-                                'tipo': tipo,
-                                'horarios': self.determinar_si_tiene_horarios(codigo, tipo),
-                                'tarifario': tarifario,
-                                'tension': tension,
-                                'voltaje': voltaje
-                            }
-                    self.tarifas_arconel = list(self.tarifa_info.keys())
+            desktop_path = Path.home() / 'Desktop'
+            folder_path = desktop_path / 'Calculadora_Solar'
+            folder_path.mkdir(parents=True, exist_ok=True)
+            
+            # Cargar clientes
+            clientes_path = folder_path / 'Calculadora Solar.xlsx'
+            if clientes_path.exists():
+                self.df_clientes = pd.read_excel(clientes_path, sheet_name=0)
+                if not self.df_clientes.empty:
+                    self.df_clientes.columns = [col.strip() for col in self.df_clientes.columns]
+                    
+                    # Asegurar que todos los campos existan
+                    for campo in self.campos_principales + self.campos_consumo:
+                        if campo not in self.df_clientes.columns:
+                            self.df_clientes[campo] = ""
+                    
+                    # Normalizar nombres de columnas de arrays
+                    for i in range(1, 9):
+                        for dim in ['X', 'Y']:
+                            col_standard = f"Array {i} {dim}"
+                            col_alternate = f"Array{i}{dim}"
+                            
+                            if col_standard in self.df_clientes.columns:
+                                continue
+                            elif col_alternate in self.df_clientes.columns:
+                                self.df_clientes.rename(columns={col_alternate: col_standard}, inplace=True)
+                            else:
+                                self.df_clientes[col_standard] = ""
+                    
+                    # Normalizar campo Arrays
+                    if 'Arrays' in self.df_clientes.columns:
+                        self.df_clientes['Arrays'] = pd.to_numeric(
+                            self.df_clientes['Arrays'], 
+                            errors='coerce'
+                        ).fillna(0).astype(int)
+                    
+                    # Reemplazar NaN con cadenas vacías
+                    self.df_clientes = self.df_clientes.fillna("")
+            
+            # Cargar tarifas desde la hoja "Pliego Tarifario"
+            tarifas_path = folder_path / 'Calculadora Solar.xlsx'
+            if tarifas_path.exists():
+                try:
+                    self.df_tarifas = pd.read_excel(tarifas_path, sheet_name="Pliego Tarifario")
+                    
+                    if not self.df_tarifas.empty:
+                        self.df_tarifas.columns = [col.strip() for col in self.df_tarifas.columns]
+                        
+                        # Buscar columnas por nombres esperados
+                        codigo_col = next((col for col in self.df_tarifas.columns if 'código' in col.lower() or 'codigo' in col.lower()), None)
+                        tipo_col = next((col for col in self.df_tarifas.columns if 'tipo' in col.lower() or 'descripción' in col.lower() or 'descripcion' in col.lower()), None)
+                        tarifario_col = next((col for col in self.df_tarifas.columns if 'tarifario' in col.lower()), None)
+                        tension_col = next((col for col in self.df_tarifas.columns if 'tensión' in col.lower() or 'tension' in col.lower()), None)
+                        voltaje_col = next((col for col in self.df_tarifas.columns if 'voltaje' in col.lower()), None)
+                        
+                        if codigo_col:
+                            for _, row in self.df_tarifas.iterrows():
+                                codigo = str(row[codigo_col]) if pd.notna(row[codigo_col]) else ""
+                                if codigo:
+                                    tipo = str(row[tipo_col]) if tipo_col and pd.notna(row[tipo_col]) else ""
+                                    tarifario = str(row[tarifario_col]) if tarifario_col and pd.notna(row[tarifario_col]) else ""
+                                    tension = str(row[tension_col]) if tension_col and pd.notna(row[tension_col]) else ""
+                                    voltaje = str(row[voltaje_col]) if voltaje_col and pd.notna(row[voltaje_col]) else ""
+                                    
+                                    self.tarifa_info[codigo] = {
+                                        'tipo': tipo,
+                                        'horarios': self.determinar_si_tiene_horarios(codigo, tipo),
+                                        'tarifario': tarifario,
+                                        'tension': tension,
+                                        'voltaje': voltaje
+                                    }
+                            self.tarifas_arconel = list(self.tarifa_info.keys())
+                except Exception as e:
+                    st.error(f"Error al cargar tarifas: {str(e)}")
+                    self.tarifas_arconel = []
 
         except Exception as e:
-            st.error(f"Error al cargar datos desde Google Sheets: {str(e)}")
+            st.error(f"Error al cargar datos: {str(e)}")
     
     def determinar_si_tiene_horarios(self, codigo, tipo):
         if codigo in ['BTCRSD01-BT', 'BTCGCD30-BT', 'MTCGCD32-MT']:
@@ -572,7 +620,7 @@ class ClienteManager:
     
     def mostrar_pestana(self):
         st.header("📝 Datos del Cliente")
-       
+        
         # Botón de búsqueda en la parte superior
         if st.button("🔍 Buscar Cliente"):
             self.session_state['mostrar_busqueda'] = True
@@ -1046,16 +1094,20 @@ class ClienteManager:
     def mostrar_busqueda_clientes(self):
         st.subheader("Buscar Cliente")
 
+        desktop_path = Path.home() / 'Desktop'
+        archivo = desktop_path / 'Calculadora_Solar' / 'Calculadora Solar.xlsx'
+
+        if not archivo.exists():
+            st.warning("⚠️ Archivo Excel no encontrado.")
+            return
+
         try:
-            self.df_clientes = self.sheet_clientes.read_sheet("Clientes")
+            self.df_clientes = pd.read_excel(archivo, sheet_name="Clientes")
         except Exception as e:
-            st.error(f"❌ No se pudo leer la hoja 'Clientes' desde Google Sheets: {e}")
+            st.error(f"❌ No se pudo leer la hoja 'Clientes': {e}")
             return
 
-        if self.df_clientes.empty:
-            st.warning("⚠️ No se encontraron registros en la hoja 'Clientes'.")
-            return
-
+        # Asegurar columnas
         if "Empresa" not in self.df_clientes.columns:
             st.warning("⚠️ La hoja 'Clientes' no contiene la columna 'Empresa'.")
             return
@@ -1065,7 +1117,7 @@ class ClienteManager:
         if busqueda:
             filtrados = self.df_clientes[
                 self.df_clientes["Empresa"].astype(str).str.contains(busqueda, case=False, na=False) |
-                self.df_clientes.get("Persona de Contacto", pd.Series([""] * len(self.df_clientes))).astype(str).str.contains(busqueda, case=False, na=False)
+                self.df_clientes.get("Persona de Contacto", "").astype(str).str.contains(busqueda, case=False, na=False)
             ]
         else:
             filtrados = self.df_clientes
@@ -1093,8 +1145,18 @@ class ClienteManager:
                 st.rerun()
     
     def cargar_cliente_seleccionado(self, idx):
+        from openpyxl import load_workbook
+        import pandas as pd
+
+        desktop_path = Path.home() / 'Desktop'
+        archivo = desktop_path / 'Calculadora_Solar' / 'Calculadora Solar.xlsx'
+
+        if not archivo.exists():
+            st.error("❌ Archivo no encontrado.")
+            return
+
         try:
-            self.limpiar_campos()
+            self.limpiar_campos() 
             empresa = self.df_clientes.loc[idx, "Empresa"]
 
             hojas = {
@@ -1110,9 +1172,9 @@ class ClienteManager:
 
             for hoja, key in hojas.items():
                 try:
-                    df = self.sheet_clientes.read_sheet(hoja)
+                    df = pd.read_excel(archivo, sheet_name=hoja)
                     if "Empresa" not in df.columns:
-                        continue
+                       continue
 
                     df_cliente = df[df["Empresa"] == empresa]
 
@@ -1120,6 +1182,7 @@ class ClienteManager:
                         continue
 
                     if hoja == "Clientes":
+                        # ✅ Usa método central que carga todo correctamente
                         self.cargar_datos_cliente(df_cliente.iloc[0])
 
                     elif hoja == "Estructura Solar":
@@ -1139,13 +1202,14 @@ class ClienteManager:
                         self.session_state[key] = df_cliente.iloc[0].drop(labels=["Empresa"]).to_dict()
 
                 except Exception as e:
-                    st.warning(f"⚠️ Error al cargar hoja '{hoja}' desde Google Sheets: {e}")
+                    st.warning(f"⚠️ Error al cargar hoja '{hoja}': {e}")
 
             st.success(f"✅ Cliente '{empresa}' cargado correctamente.")
             st.experimental_rerun()
 
         except Exception as e:
-            st.error(f"❌ Error general al cargar cliente: {str(e)}")
+            st.error(f"❌ Error al cargar cliente: {str(e)}")
+
     
     def actualizar_campos_tarifa(self, tarifa):
         if tarifa in self.tarifa_info:
