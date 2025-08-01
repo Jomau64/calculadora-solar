@@ -1,6 +1,7 @@
 import gspread
 import pandas as pd
 import streamlit as st
+import json
 from google.oauth2.service_account import Credentials
 
 class GoogleSheetHandler:
@@ -10,7 +11,7 @@ class GoogleSheetHandler:
             "https://www.googleapis.com/auth/drive"
         ]
 
-        credentials_info = st.secrets["GOOGLE_CREDENTIALS"]
+        credentials_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])  # ← CORREGIDO
         creds = Credentials.from_service_account_info(credentials_info, scopes=scope)
         self.client = gspread.authorize(creds)
         self.valid = True
@@ -20,7 +21,8 @@ class GoogleSheetHandler:
                 self.sheet = self.client.open_by_key(spreadsheet_name_or_id)
             else:
                 self.sheet = self.client.open(spreadsheet_name_or_id)
-        except Exception:
+        except Exception as e:
+            print(f"❌ No se pudo abrir el spreadsheet '{spreadsheet_name_or_id}': {e}")
             self.sheet = None
             self.valid = False
 
@@ -84,3 +86,4 @@ class SheetsManager:
         if key not in self.sheets:
             self.sheets[key] = GoogleSheetHandler(spreadsheet_name, **kwargs)
         return self.sheets[key]
+
