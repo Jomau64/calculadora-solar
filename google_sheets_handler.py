@@ -12,7 +12,7 @@ class GoogleSheetHandler:
             "https://www.googleapis.com/auth/drive"
         ]
 
-        credentials_info = st.secrets["GOOGLE_CREDENTIALS"]
+        credentials_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
         creds = Credentials.from_service_account_info(credentials_info, scopes=scope)
         self.client = gspread.authorize(creds)
 
