@@ -12,7 +12,7 @@ class GoogleSheetHandler:
                  "https://www.googleapis.com/auth/drive.file"]
 
         credentials_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-        creds = Credentials.from_service_account_info(credentials_info, scopes=scope)
+        creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
         self.client = gspread.authorize(creds)
         self.spreadsheet_name = spreadsheet_name  # Guardamos el nombre de la hoja, pero no accedemos a ninguna worksheet aún
 
