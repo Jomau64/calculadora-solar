@@ -4,7 +4,7 @@ from componentes import ComponentesManager
 from costos import CostosManager
 from analisis_economico import AnalisisEconomico as AnalisisEconomicoManager
 from google_sheets_handler import SheetsManager
-from backend.google_sheets_handler import SheetsManager
+
 
 
 st.set_page_config(
