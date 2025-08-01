@@ -1,7 +1,9 @@
+
 import gspread
 import pandas as pd
 from google.oauth2.service_account import Credentials
 import streamlit as st
+import json
 
 class GoogleSheetHandler:
     def __init__(self, spreadsheet_name_or_id, by_id=False):
@@ -10,9 +12,9 @@ class GoogleSheetHandler:
             "https://www.googleapis.com/auth/drive"
         ]
 
-        # 🔧 Usa directamente el diccionario si ya viene como tal desde secrets
-        credentials_info = st.secrets["GOOGLE_CREDENTIALS"]
+        credentials_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
         creds = Credentials.from_service_account_info(credentials_info, scopes=scope)
+
         self.client = gspread.authorize(creds)
         self.valid = True
 
@@ -22,7 +24,7 @@ class GoogleSheetHandler:
             else:
                 self.sheet = self.client.open(spreadsheet_name_or_id)
         except Exception as e:
-            st.warning(f"❌ No se pudo abrir el spreadsheet '{spreadsheet_name_or_id}': {e}")
+            print(f"❌ No se pudo abrir el spreadsheet '{spreadsheet_name_or_id}': {e}")
             self.sheet = None
             self.valid = False
 
@@ -34,6 +36,16 @@ class GoogleSheetHandler:
             worksheet = self.sheet.worksheet(worksheet_name)
             data = worksheet.get_all_records()
             return pd.DataFrame(data) if data else pd.DataFrame()
-        except Exception:
+        except Exception as e:
+            print(f"❌ Error leyendo hoja '{worksheet_name}': {e}")
             return pd.DataFrame()
 
+class SheetsManager:
+    def __init__(self):
+        self.sheets = {}
+
+    def get(self, spreadsheet_name, **kwargs):
+        key = (spreadsheet_name, frozenset(kwargs.items()))
+        if key not in self.sheets:
+            self.sheets[key] = GoogleSheetHandler(spreadsheet_name, **kwargs)
+        return self.sheets[key]
