@@ -34,7 +34,7 @@ class SolarAppGUI:
                 hojas = {
                     "Paneles": ("1cJwKj1fWp-ZVRaybO6PVTYacw1fjHrfLVBEHo7aMM7Y", "Paneles Solares", True),
                     "Inversores": ("1uiBBuLGl8hodfolqIq5mDo_X3Wxf0m6WMZgM0aSzDmQ", "Inversores", True),
-                    #"Baterías": ("1eTtzlMSSiTxjFzOIdeUOVJRMIJnnDtG3yVnYA3Wwwds", "Baterías", True),
+                    "Baterías": ("1zzzzzzzzzzzzzzzzzzzzzzzzzzzzz", "Baterías", True),
                     "Tarifas": ("1P4pxu687QhPrpKNNEAvi1eP17tYAk0KNOLAXA1lgCV8", "Pliego Tarifario", True),
                     "Estructura": ("1LZP8YNZZbqygkc7loqpEJrOslebEttE5xXfrwSRpGLc", "Materiales Estructura Solar", True),
                 }
