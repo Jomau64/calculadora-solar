@@ -1,11 +1,9 @@
-import streamlit as st
+import streamlit as st 
 import pandas as pd
 from componentes import ComponentesManager
 from costos import CostosManager
 from analisis_economico import AnalisisEconomico as AnalisisEconomicoManager
 from google_sheets_handler import SheetsManager
-
-
 
 st.set_page_config(
     page_title="Calculadora Solar",
@@ -34,36 +32,29 @@ class SolarAppGUI:
                 st.session_state.df_calculadora = {}
 
                 hojas = {
-                    "Paneles": ("Base de Datos Paneles Solares", "Paneles Solares"),
-                    "Inversores": ("Base de Datos Inversores", "Inversores"),
-                    "Baterías": ("Base de Datos Baterías", "Baterías"),
-                    "Tarifas": ("Base de Datos Tarifas Eléctricas", "Pliego Tarifario"),
-                    "Estructura": ("Base de Datos Materiales Estructura Solar", "Materiales Estructura Solar"),
-                    # Usar ID directo con `by_id=True`
-                    #"Convertidor": ("Base de Datos Convertidor de Alto Voltaje DC", "Convertidor de Alto Voltaje DC"),
+                    "Paneles": ("1cJwKj1fWp-ZVRaybO6PVTYacw1fjHrfLVBEHo7aMM7Y", "Paneles Solares", True),
+                    "Inversores": ("1uiBBuLGl8hodfolqIq5mDo_X3Wxf0m6WMZgM0aSzDmQ", "Inversores", True),
+                    "Baterías": ("1zzzzzzzzzzzzzzzzzzzzzzzzzzzzz", "Baterías", True),  # Reemplaza por el ID real de baterías
+                    "Tarifas": ("1P4pxu687QhPrpKNNEAvi1eP17tYAk0KNOLAXA1lgCV8", "Pliego Tarifario", True),
+                    "Estructura": ("1LZP8YNZZbqygkc7loqpEJrOslebEttE5xXfrwSRpGLc", "Materiales Estructura Solar", True),
                 }
 
-                for clave, (archivo, hoja) in hojas.items():
+                for clave, valores in hojas.items():
                     try:
-                        # Agrega verificación adicional
-                        if "Convertidor" in clave:
-                            # Usa un dataframe vacío como fallback
-                            st.session_state.df_calculadora[clave] = pd.DataFrame({
-                                "Modelo": ["Ejemplo 1", "Ejemplo 2"],
-                                "Voltaje": ["220V", "380V"]
-                            })
-                            continue
-                        
-                        st.session_state.df_calculadora[clave] = self.sheets.get(archivo).read_sheet(hoja)
+                        if len(valores) == 3:
+                            archivo, hoja, by_id = valores
+                        else:
+                            archivo, hoja = valores
+                            by_id = False
+
+                        st.session_state.df_calculadora[clave] = self.sheets.get(archivo, by_id=by_id).read_sheet(hoja)
                     except Exception as e:
                         st.warning(f"⚠️ No se pudo cargar {clave}: Usando datos de ejemplo")
-                        # Datos de ejemplo para continuar
                         st.session_state.df_calculadora[clave] = pd.DataFrame({
                             "Modelo": ["Ejemplo 1", "Ejemplo 2"],
                             "Especificaciones": ["Valor 1", "Valor 2"]
                         })
-                        
-                        
+
     def inicializar_managers(self):
         from cliente import ClienteManager
         from equipamiento import EquipamientoManager
