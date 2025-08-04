@@ -39,17 +39,13 @@ class SolarAppGUI:
                     "Estructura": ("1LZP8YNZZbqygkc7loqpEJrOslebEttE5xXfrwSRpGLc", "Materiales Estructura Solar", True),
                 }
 
-                for clave, valores in hojas.items():
+                for clave, (archivo, hoja, by_id) in hojas.items():
                     try:
-                        archivo, hoja = valores[0], valores[1]
-                        by_id = valores[2] if len(valores) == 3 else False
-
                         df = self.sheets.get(archivo, by_id=by_id).read_sheet(hoja)
-                        print(f"✅ {clave} cargado: {df.shape[0]} filas")
                         st.session_state.df_calculadora[clave] = df
                     except Exception as e:
-                        print(f"❌ Error cargando {clave} → {e}")
-                        st.warning(f"⚠️ No se pudo cargar {clave}: Usando datos de ejemplo")
+                        if clave != "Baterías":
+                            st.warning(f"⚠️ No se pudo cargar {clave}: Usando datos de ejemplo")
                         st.session_state.df_calculadora[clave] = pd.DataFrame({
                             "Modelo": ["Ejemplo 1", "Ejemplo 2"],
                             "Especificaciones": ["Valor 1", "Valor 2"]
