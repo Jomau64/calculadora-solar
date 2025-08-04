@@ -2,7 +2,6 @@
 import gspread
 import pandas as pd
 import streamlit as st
-import json
 from google.oauth2.service_account import Credentials
 
 class GoogleSheetHandler:
@@ -11,7 +10,6 @@ class GoogleSheetHandler:
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
         ]
-
         credentials_info = st.secrets["GOOGLE_CREDENTIALS"]
         creds = Credentials.from_service_account_info(credentials_info, scopes=scope)
         self.client = gspread.authorize(creds)
