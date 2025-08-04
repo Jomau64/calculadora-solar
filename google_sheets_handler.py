@@ -1,3 +1,4 @@
+
 import gspread
 import pandas as pd
 import streamlit as st
@@ -27,7 +28,9 @@ class GoogleSheetHandler:
             else:
                 self.sheet = self.client.open(spreadsheet_name_or_id)
         except Exception as e:
-            st.error(f"❌ No se pudo abrir el spreadsheet: {e}")
+            error_str = str(e)
+            if "Response [200]" not in error_str:
+                st.error(f"❌ No se pudo abrir el spreadsheet: {error_str}")
             self.sheet = None
             self.valid = False
 
@@ -39,7 +42,9 @@ class GoogleSheetHandler:
             data = worksheet.get_all_records()
             return pd.DataFrame(data) if data else pd.DataFrame()
         except Exception as e:
-            st.error(f"❌ Error al leer la hoja '{worksheet_name}': {e}")
+            error_str = str(e)
+            if "Response [200]" not in error_str:
+                st.error(f"❌ Error al leer la hoja '{worksheet_name}': {error_str}")
             return pd.DataFrame()
 
     def save_or_update_row(self, worksheet_name, new_data: dict, key_field="Empresa"):
@@ -50,13 +55,11 @@ class GoogleSheetHandler:
             current_headers = worksheet.row_values(1)
             new_keys = list(new_data.keys())
 
-            # Agregar nuevas columnas si no existen
             missing_cols = [k for k in new_keys if k not in current_headers]
             if missing_cols:
                 current_headers += missing_cols
                 worksheet.update('A1', [current_headers])
 
-            # Leer datos actuales
             all_values = worksheet.get_all_values()
             rows = all_values[1:]
             df = pd.DataFrame(rows, columns=current_headers) if rows else pd.DataFrame(columns=current_headers)
@@ -93,4 +96,3 @@ class SheetsManager:
         if key not in self.sheets:
             self.sheets[key] = GoogleSheetHandler(spreadsheet_name, **kwargs)
         return self.sheets[key]
-
