@@ -1,3 +1,4 @@
+
 import streamlit as st 
 import pandas as pd
 from componentes import ComponentesManager
@@ -18,7 +19,6 @@ def get_sheets_manager():
 
 sheets_manager = get_sheets_manager()
 
-
 class SolarAppGUI:
     def __init__(self):
         self.sheets = sheets_manager
@@ -34,21 +34,21 @@ class SolarAppGUI:
                 hojas = {
                     "Paneles": ("1cJwKj1fWp-ZVRaybO6PVTYacw1fjHrfLVBEHo7aMM7Y", "Paneles Solares", True),
                     "Inversores": ("1uiBBuLGl8hodfolqIq5mDo_X3Wxf0m6WMZgM0aSzDmQ", "Inversores", True),
-                    "Baterías": ("1zzzzzzzzzzzzzzzzzzzzzzzzzzzzz", "Baterías", True),  # Reemplaza por el ID real de baterías
+                    "Baterías": ("[REEMPLAZA_CON_ID_REAL]", "Baterías", True),
                     "Tarifas": ("1P4pxu687QhPrpKNNEAvi1eP17tYAk0KNOLAXA1lgCV8", "Pliego Tarifario", True),
                     "Estructura": ("1LZP8YNZZbqygkc7loqpEJrOslebEttE5xXfrwSRpGLc", "Materiales Estructura Solar", True),
                 }
 
                 for clave, valores in hojas.items():
                     try:
-                        if len(valores) == 3:
-                            archivo, hoja, by_id = valores
-                        else:
-                            archivo, hoja = valores
-                            by_id = False
+                        archivo, hoja = valores[0], valores[1]
+                        by_id = valores[2] if len(valores) == 3 else False
 
-                        st.session_state.df_calculadora[clave] = self.sheets.get(archivo, by_id=by_id).read_sheet(hoja)
+                        df = self.sheets.get(archivo, by_id=by_id).read_sheet(hoja)
+                        print(f"✅ {clave} cargado: {df.shape[0]} filas")
+                        st.session_state.df_calculadora[clave] = df
                     except Exception as e:
+                        print(f"❌ Error cargando {clave} → {e}")
                         st.warning(f"⚠️ No se pudo cargar {clave}: Usando datos de ejemplo")
                         st.session_state.df_calculadora[clave] = pd.DataFrame({
                             "Modelo": ["Ejemplo 1", "Ejemplo 2"],
@@ -162,7 +162,6 @@ class SolarAppGUI:
             st.session_state.costos_manager.mostrar_pestana()
         elif seccion == "📊 Análisis Económico":
             st.session_state.analisis_economico_manager.mostrar_pestana()
-
 
 if __name__ == "__main__":
     app = SolarAppGUI()
