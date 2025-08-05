@@ -817,90 +817,81 @@ class ClienteManager:
     
     def mostrar_espacio_fisico(self):
         st.header("Espacio Físico Disponible")
-        
+
         st.markdown("""
         <style>
-        .array-table th {
-            font-size: 12px;
-            font-weight: bold;
-            padding: 5px;
+        .excel-table {
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 14px;
+        }
+        .excel-table th, .excel-table td {
+            border: 1px solid #ccc;
+            padding: 8px;
             text-align: center;
         }
-        .array-table td {
-            font-size: 12px;
-            padding: 5px;
+        .excel-table th {
+            background-color: #f5f5f5;
+            font-weight: bold;
         }
         </style>
         """, unsafe_allow_html=True)
-        
+
         try:
             num_arrays = int(float(self.session_state['cliente_data'].get("Arrays", "0"))) or 0
             num_arrays = max(0, min(num_arrays, 8))
         except:
             num_arrays = 0
-        
-        st.write(f"**Número de Arrays configurados:** {num_arrays}")
 
-        cols = st.columns([2, 2, 2, 2])
-        headers = ["**Array**", "**Medida X (m)**", "**Medida Y (m)**", "**Área (m²)**"]
-        for i, header in enumerate(headers):
-            cols[i].markdown(header, unsafe_allow_html=True)
+        st.markdown("""
+        <table class="excel-table">
+            <tr>
+                <th>Array</th>
+                <th>Medida X (m)</th>
+                <th>Medida Y (m)</th>
+                <th>Área (m²)</th>
+            </tr>
+        </table>
+        """, unsafe_allow_html=True)
 
         total_x = 0.0
         total_y = 0.0
         total_area = 0.0
 
         for i in range(1, num_arrays + 1):
-            cols = st.columns([2, 2, 2, 2])
-            
-            cols[0].write(f"Array {i}")
-            
             x_key = f"Array_{i}_X"
-            x_val = self.session_state['array_data'].get(x_key, "0")
-            new_x = cols[1].text_input(
-                f"X_{i}",
-                value=x_val,
-                key=f"x_input_{i}",
-                label_visibility="collapsed"
-            )
-            if new_x != x_val:
-                self.session_state['array_data'][x_key] = new_x if new_x else "0"
-                st.rerun()
-            
             y_key = f"Array_{i}_Y"
+
+            x_val = self.session_state['array_data'].get(x_key, "0")
             y_val = self.session_state['array_data'].get(y_key, "0")
-            new_y = cols[2].text_input(
-                f"Y_{i}",
-                value=y_val,
-                key=f"y_input_{i}",
-                label_visibility="collapsed"
-            )
-            if new_y != y_val:
-                self.session_state['array_data'][y_key] = new_y if new_y else "0"
-                st.rerun()
-            
+
             try:
-                x = float(new_x.replace(",", ".")) if new_x and new_x.replace(",", "").replace(".", "").isdigit() else 0.0
-                y = float(new_y.replace(",", ".")) if new_y and new_y.replace(",", "").replace(".", "").isdigit() else 0.0
+                x = float(x_val.replace(",", ".")) if x_val else 0.0
+                y = float(y_val.replace(",", ".")) if y_val else 0.0
                 area = x * y
-                total_x += x
-                total_y += y
-                total_area += area
-                cols[3].write(f"{self.formatear_decimal(area)}")
             except:
-                cols[3].write("0.00")
-        
+                x = y = area = 0.0
+
+            total_x += x
+            total_y += y
+            total_area += area
+
+            cols = st.columns([1, 1, 1, 1])
+            cols[0].write(f"Array {i}")
+            new_x = cols[1].text_input(f"X {i}", value=x_val, key=f"x_input_{i}", label_visibility="collapsed")
+            new_y = cols[2].text_input(f"Y {i}", value=y_val, key=f"y_input_{i}", label_visibility="collapsed")
+            cols[3].write(f"{self.formatear_decimal(area)}")
+
+            self.session_state['array_data'][x_key] = new_x or "0"
+            self.session_state['array_data'][y_key] = new_y or "0"
+
         if num_arrays > 0:
             st.subheader("Totales")
-            cols = st.columns([2, 2, 2, 2])
-            cols[0].write("**TOTAL**")
-            cols[1].write(f"**{self.formatear_decimal(total_x)}**")
-            cols[2].write(f"**{self.formatear_decimal(total_y)}**")
-            cols[3].write(f"**{self.formatear_decimal(total_area)} m²**")
-            
-            if self.session_state['distribucion_data'].get('distribucion_actualizada', False):
-                self.session_state['distribucion_data']['distribucion_actualizada'] = False
-                st.rerun()
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Suma X", self.formatear_decimal(total_x))
+            col2.metric("Suma Y", self.formatear_decimal(total_y))
+            col3.metric("Área Total (m²)", self.formatear_decimal(total_area))
+
     
     def mostrar_requerimiento_energetico(self):
         self.calcular_requerimientos()
