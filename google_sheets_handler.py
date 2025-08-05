@@ -10,7 +10,6 @@ class GoogleSheetHandler:
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
         ]
-
         try:
             credentials_info = st.secrets["GOOGLE_CREDENTIALS"]
             creds = Credentials.from_service_account_info(credentials_info, scopes=scope)
@@ -29,26 +28,28 @@ class GoogleSheetHandler:
                 self.sheet = self.client.open(spreadsheet_name_or_id)
         except Exception as e:
             error_str = str(e)
-            if "Response [200]" not in error_str:
+            if "Quota exceeded" in error_str:
+                pass  # Silenciar error
+            elif "Response [200]" not in error_str:
                 st.error(f"❌ No se pudo abrir el spreadsheet: {error_str}")
             self.sheet = None
             self.valid = False
 
     def read_sheet(self, worksheet_name):
         if not self.valid or not self.sheet:
-           return pd.DataFrame()
+            return pd.DataFrame()
         try:
             worksheet = self.sheet.worksheet(worksheet_name)
             data = worksheet.get_all_records()
             return pd.DataFrame(data) if data else pd.DataFrame()
         except Exception as e:
             error_str = str(e)
-        # Solo mostrar error si no es la hoja 'Baterías'
-            if "Response [200]" not in error_str and worksheet_name != "Baterías":
+            if "Quota exceeded" in error_str:
+                pass
+            elif "Response [200]" not in error_str and worksheet_name != "Baterías":
                 st.error(f"❌ Error al leer la hoja '{worksheet_name}': {error_str}")
             return pd.DataFrame()
-        
-        
+
     def save_or_update_row(self, worksheet_name, new_data: dict, key_field="Empresa"):
         if not self.valid or not self.sheet:
             return "error_sin_conexion"
